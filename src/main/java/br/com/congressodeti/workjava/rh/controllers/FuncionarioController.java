@@ -11,36 +11,33 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-import br.com.congressodeti.workjava.rh.BusinessException;
-import br.com.congressodeti.workjava.rh.model.Funcionario;
-import br.com.congressodeti.workjava.rh.model.Reajuste;
+import br.com.congressodeti.workjava.rh.exceptions.BusinessException;
+import br.com.congressodeti.workjava.rh.models.Funcionario;
+import br.com.congressodeti.workjava.rh.models.Reajuste;
 import br.com.congressodeti.workjava.rh.repositories.CargoRepository;
-import br.com.congressodeti.workjava.rh.repositories.FuncionarioRepository;
 import br.com.congressodeti.workjava.rh.repositories.ReajusteRepository;
-import br.com.congressodeti.workjava.rh.services.funcionario.CadastroFuncionarioService;
-import br.com.congressodeti.workjava.rh.validadores.funcionario.reajuste.ValidadorReajusteSalarial;
+import br.com.congressodeti.workjava.rh.services.funcionario.FuncionarioService;
+import br.com.congressodeti.workjava.rh.validacoes.funcionario.reajuste.ValidadorReajuste;
 
 @Controller
 @RequestMapping("/funcionarios")
 public class FuncionarioController {
 	
-	private final FuncionarioRepository funcionarioRepository;
 	private final CargoRepository cargoRepository;
 	private final ReajusteRepository reajusteRepository;
-	private final CadastroFuncionarioService cadastroFuncionarioService;
-	private final List<ValidadorReajusteSalarial> validadores;
+	private final FuncionarioService funcionarioService;
+	private final List<ValidadorReajuste> validadoresReajuste;
 	
-	public FuncionarioController(FuncionarioRepository funcionarioRepository, CargoRepository cargoRepository, ReajusteRepository reajusteRepository, CadastroFuncionarioService cadastroFuncionarioService, List<ValidadorReajusteSalarial> validadores) {
-		this.funcionarioRepository = funcionarioRepository;
+	public FuncionarioController(CargoRepository cargoRepository, ReajusteRepository reajusteRepository, FuncionarioService funcionarioService, List<ValidadorReajuste> validadoresReajuste) {
 		this.cargoRepository = cargoRepository;
 		this.reajusteRepository = reajusteRepository;
-		this.cadastroFuncionarioService = cadastroFuncionarioService;
-		this.validadores = validadores;
+		this.funcionarioService = funcionarioService;
+		this.validadoresReajuste = validadoresReajuste;
 	}
 
 	@GetMapping
 	public String lista(Model model) {
-		List<Funcionario> todos = funcionarioRepository.findAll();
+		List<Funcionario> todos = funcionarioService.listarTodos();
 		model.addAttribute("funcionarios", todos);
 		return "funcionario/lista";
 	}
@@ -52,26 +49,27 @@ public class FuncionarioController {
 	}
 	
 	@PostMapping
-	public String salvar(Funcionario novo, Model model) {
+	public String salvar(Funcionario novo, Model model, RedirectAttributes attributes) {
 		try {
-			cadastroFuncionarioService.salvar(novo);
+			funcionarioService.salvar(novo);
+			attributes.addFlashAttribute("msgSucesso", "Funcionario cadastrado!");
 			return "redirect:/funcionarios";
 		} catch (BusinessException e) {
 			model.addAttribute("msgErro", e.getMessage());
-			return "funcionario/form";
+			return formulario(model);
 		}
 	}
 	
 	@DeleteMapping
-	public String excluir(Long id) {
-		funcionarioRepository.deleteById(id);
-		
+	public String excluir(Long id, RedirectAttributes attributes) {
+		funcionarioService.excluir(id);
+		attributes.addFlashAttribute("msgSucesso", "Funcionario excluido!");
 		return "redirect:/funcionarios";
 	}
 	
 	@GetMapping("/{id}/reajustes")
 	public String reajustes(@PathVariable("id") Long id, Model model) {
-		Funcionario selecionado = funcionarioRepository.getOne(id);
+		Funcionario selecionado = funcionarioService.buscarPorId(id);
 		List<Reajuste> reajustesConcedidos = reajusteRepository.findAllByFuncionario(selecionado);
 		model.addAttribute("funcionario", selecionado);
 		model.addAttribute("reajustes", reajustesConcedidos);
@@ -79,16 +77,18 @@ public class FuncionarioController {
 	}
 	
 	@PostMapping("/{id}/reajustes")
-	public String reajustar(@PathVariable("id") Long id, Reajuste novo, RedirectAttributes model) {
+	public String reajustar(@PathVariable("id") Long id, Reajuste novo, Model model, RedirectAttributes attributes) {
+		Funcionario selecionado = funcionarioService.buscarPorId(id);
+		novo.setFuncionario(selecionado);
+		
 		try {
-			Funcionario selecionado = funcionarioRepository.getOne(id);
-			novo.setFuncionario(selecionado);
-			validadores.forEach(v -> v.validar(novo));
+			validadoresReajuste.forEach(v -> v.valida(novo));
 			reajusteRepository.save(novo);
+			attributes.addFlashAttribute("msgSucesso", "Reajuste cadastrado!");
 			return "redirect:/funcionarios";
 		} catch (BusinessException e) {
-			model.addFlashAttribute("msgErro", e.getMessage());
-			return "redirect:/funcionarios/"+id +"/reajustes";
+			model.addAttribute("msgErro", e.getMessage());
+			return reajustes(id, model);
 		}
 	}
 
